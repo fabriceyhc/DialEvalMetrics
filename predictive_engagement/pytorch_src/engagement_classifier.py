@@ -3,11 +3,23 @@ import numpy as np
 import torch 
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from sklearn.metrics import classification_report, roc_auc_score
 import pickle
 import torch.nn as nn
 import os 
 import csv
+import pandas as pd
+
+from sklearn.metrics import classification_report, roc_auc_score
+from scipy.stats import spearmanr
+from scipy.stats import pearsonr
+
+# y_true is sequence of 0,1; y_pred is sequence of probs, that you just create
+def pearson(y_true,y_pred):
+    corr, _ = pearsonr(y_true,y_pred)
+    return corr
+def spearman(y_true,y_pred):
+    corr, _ = spearmanr(y_true,y_pred)
+    return corr
 
 random.seed(1000)
 np.random.seed(1000)
@@ -76,7 +88,7 @@ class Engagement_cls():
         '''
         self.data_dir = data_dir 
         if ftrain != None:
-            csv_file = open(data_dir + ftrain)
+            csv_file = open(data_dir + ftrain, encoding="utf8")
             csv_reader_train = csv.reader(csv_file, delimiter=',')
             self.train_queries,self.train_replies,self.train_labels = [],[],[]
             next(csv_reader_train)
@@ -89,7 +101,7 @@ class Engagement_cls():
             self.train_queries_embeds, self.train_replies_embeds= self.load_Bert_embeddings(data_dir, self.ftrain_queries_embed, self.ftrain_replies_embed)
 
         if fvalid != None:
-            csv_file = open(data_dir + fvalid)
+            csv_file = open(data_dir + fvalid, encoding="utf8")
             csv_reader_valid = csv.reader(csv_file, delimiter=',')
             self.valid_queries,self.valid_replies,self.valid_labels= [],[],[]
             next(csv_reader_valid)
@@ -105,7 +117,7 @@ class Engagement_cls():
         if ftest != None:
             print(self.ftest_queries_embed)
             print(self.ftest_replies_embed)
-            csv_file = open(data_dir + ftest)
+            csv_file = open(data_dir + ftest, encoding="utf8")
             csv_reader_test = csv.reader(csv_file, delimiter=',')
 
             self.test_queries,self.test_replies,self.test_labels = [],[],[]
@@ -113,7 +125,7 @@ class Engagement_cls():
             for row in csv_reader_test:
                 self.test_queries.append(row[1].split('\n')[0])
                 self.test_replies.append(row[2].split('\n')[0])
-                self.test_labels.append(int(row[3]))
+                self.test_labels.append(float(row[3]))
             self.test_size = len(self.test_queries)
             self.test_queries_embeds, self.test_replies_embeds= self.load_Bert_embeddings(data_dir, self.ftest_queries_embed, self.ftest_replies_embed)
 
@@ -364,8 +376,6 @@ class Engagement_cls():
         plt.xlabel("train and valid loss for model")
         plt.savefig(self.train_dir + 'model_loss.jpg')
 
-        
-
          
     def test(self, fname):
         '''Test the trained model on test set
@@ -425,7 +435,7 @@ class Engagement_cls():
         print('Test set: test_loss: {} -- test_auc: {}'.format(test_loss, test_auc))
 
 
-    def generate_eng_score(self, fname_ground_truth, ofile):
+    def generate_eng_score(self, fname_ground_truth, ofile, finetuned=True):
         '''for all pairs of queries and replies predicts engagement scores
         Params:
             fname_ground_truth: file includes the queries and their ground-truth replies
@@ -434,24 +444,34 @@ class Engagement_cls():
 
         '''
 
-        if not os.path.isfile(self.train_dir+'best_model_finetuned.pt'):
-            print('There is not any finetuned model on DD dataset to be used!\nPlease first try to finetune trained model.')
+        model_name = 'best_model_finetuned' if finetuned else 'best_model'
+        model_path = self.train_dir +  model_name + '.pt'
+        model_info_path = self.train_dir +  model_name + '.info'
+
+        print(model_path)
+
+        if not os.path.isfile(model_path):
+            print('There is not any model on DD dataset to be used!\nPlease first try to finetune trained model.')
             return
         model = BiLSTM(mlp_hidden_dim=self.mlp_hidden_dim, dropout=self.dropout)
         if torch.cuda.is_available():
             model.cuda()
-        model.load_state_dict(torch.load(self.train_dir +  'best_model_finetuned.pt'))
-        info = torch.load(self.train_dir + 'best_model_finetuned.info')
+        model.load_state_dict(torch.load(model_path))
+        info = torch.load(model_info_path)
         model.eval()
 
-        fw_pred_labels = open(self.data_dir + ofile, 'w')
+        # fw_pred_labels = open(self.data_dir + ofile, 'w')
         #fr_groundtruth_replies = open(self.data_dir + fname_ground_truth, 'r')
         #groundtruth_replies =fr_groundtruth_replies.readlines() 
 
+        load_file_path = self.data_dir + fname_ground_truth
+        df = pd.read_csv(load_file_path)
+
         print('begining of prediction')
-        for name, param in model.named_parameters():
-            if param.requires_grad:
-                print (name, param.data, param.shape)
+        # for name, param in model.named_parameters():
+        #     if param.requires_grad:
+        #         print(name, param.data, param.shape)
+        pred_engs = []
         for stidx in range(0, self.test_size, self.batch_size):
             x_q = self.test_queries[stidx:stidx + self.batch_size]
             x_r = self.test_replies[stidx:stidx + self.batch_size]
@@ -460,9 +480,19 @@ class Engagement_cls():
             pred_eng = torch.nn.functional.softmax(model_output, dim=1)
             for ind in range(len(x_q)):
                 #fw_pred_labels.write(x_q[ind]+'==='+x_groundtruth_r[ind].split('\n')[0]+'==='+x_r[ind]+'==='+str(pred_eng[ind][1].item())+'\n')
-                fw_pred_labels.write(x_q[ind]+'==='+x_r[ind]+'==='+str(pred_eng[ind][1].item())+'\n')
-            
+                #fw_pred_labels.write(x_q[ind]+'==='+x_r[ind]+'==='+str(pred_eng[ind][1].item())+'\n')
+                pred_engs.append(pred_eng[ind][1].item())
+
+        save_file_path = self.data_dir + ofile
+        df['pred_eng'] = pred_engs
+        df.to_csv(save_file_path, index=False)
+
+        p_corr = pearson(df['label'].tolist(), df['pred_eng'].to_list())
+        s_corr = spearman(df['label'].tolist(), df['pred_eng'].to_list())
+
         print('The engagingness score for specified replies has been predicted!')
+        print(f"pearson correlation: {p_corr}")
+        print(f"spearman correlation: {s_corr}")
 
 
     def get_eng_score(self, query, q_embed, reply, r_embed, model):

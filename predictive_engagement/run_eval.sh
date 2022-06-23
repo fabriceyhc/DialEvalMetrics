@@ -12,3 +12,19 @@ cd pytorch_src
 python create_utt_embed.py --data ${1}.csv
 python main.py --mode infer --data ${1}.csv --pooling mean
 cd ..
+
+# PredictiveEngagement
+# python create_utt_embed.py --data humanAMT_engscores_utt.csv
+# python main.py --mode infer --data humanAMT_engscores_utt.csv --pooling mean
+
+# PredictiveEngagement - 600
+# python create_utt_embed.py --data pe600.csv
+# python main.py --mode infer --data pe600.csv --pooling mean
+
+# FED
+# python create_utt_embed.py --data fed.csv
+# python main.py --mode infer --data fed.csv --pooling mean
+
+# EnDex
+# python create_utt_embed.py --data endex.csv
+# python main.py --mode infer --data endex.csv --pooling mean

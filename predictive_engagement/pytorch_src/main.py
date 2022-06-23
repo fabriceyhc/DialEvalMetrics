@@ -126,5 +126,6 @@ if __name__=="__main__":
 								args.reg, args.lr, args.dropout, args.optimizer,\
 			                    ftest_queries_embed=ftest_queries_embed ,ftest_replies_embed=ftest_replies_embed)
 		eng_cls.prepare_data(data_dir, ftest=ftest)
-		eng_cls.generate_eng_score('', f'{args.data}_score.txt')
+		eng_cls.generate_eng_score(ftest, f'{args.data}_score_base.csv', finetuned=False)
+		eng_cls.generate_eng_score(ftest, f'{args.data}_score_finetuned.csv', finetuned=True)
 	

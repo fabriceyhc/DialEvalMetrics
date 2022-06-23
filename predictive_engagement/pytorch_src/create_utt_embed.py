@@ -1,13 +1,54 @@
+import torch
+import transformers
+from transformers import AutoTokenizer, AutoModel
 
 import argparse
-from bert_serving.client import BertClient
 import csv
 import os
 import pickle
 
-#In order to create utterance embeddings, you need to first start BertServer (follow https://github.com/hanxiao/bert-as-service) with following command:
-#bert-serving-start -model_dir /tmp/english_L-12_H-768_A-12/ -num_worker=4 -max_seq_len=128 -pooling_strategy=REDUCE_MEAN
-#model_dir is the directory that pretrained Bert model has been downloaded
+class UtteranceEmbedder:
+    def __init__(self, 
+                 model_name="bert-base-uncased",
+                 max_length=128,
+                 truncation=True,
+                 padding=True,
+                 pooling="mean"):
+    
+        self.model_name = model_name
+        self.max_length = max_length
+        self.truncation = truncation
+        self.padding = padding
+        self.pooling = pooling
+
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, use_fast=True)
+        self.model = AutoModel.from_pretrained(self.model_name)
+
+    def encode(self, texts):
+
+        # tokenize input texts
+        tokenizer_result = self.tokenizer(texts, 
+                                          max_length=self.max_length, 
+                                          padding=self.padding, 
+                                          truncation=self.truncation,
+                                          return_attention_mask=True, 
+                                          return_tensors='pt')
+        input_ids = tokenizer_result.input_ids
+        att_mask = tokenizer_result.attention_mask
+
+        # encode tokenized inputs
+        model_result = self.model(input_ids, 
+                                  attention_mask=att_mask, 
+                                  return_dict=True)
+        tok_emb = model_result.last_hidden_state
+
+        # reduce token embeddings via max or mean
+        if self.pooling == "max":
+            pooled = torch.max((tok_emb * att_mask.unsqueeze(-1)), axis=1)
+        elif self.pooling == "mean":
+            pooled = tok_emb.sum(axis=1) / att_mask.sum(axis=-1).unsqueeze(-1)
+
+        return pooled.detach().cpu().numpy()
 
 def make_Bert_embeddings(data_dir, fname, f_queries_embed, f_replies_embed, type):
 	'''Create embedding file for all queries and replies in the given files
@@ -19,7 +60,7 @@ def make_Bert_embeddings(data_dir, fname, f_queries_embed, f_replies_embed, type
 		type: indicate train/valid/test set
 	'''
 
-	csv_file = open(data_dir + fname)
+	csv_file = open(data_dir + fname, encoding="utf8")
 	csv_reader = csv.reader(csv_file, delimiter=',')
 
 	foutput_q = os.path.join(data_dir + f_queries_embed)
@@ -39,7 +80,7 @@ def make_Bert_embeddings(data_dir, fname, f_queries_embed, f_replies_embed, type
 		print("Bert embedding files for utterances do not exist")
 		queries_vectors = {}
 		replies_vectors = {}
-		bc = BertClient()
+		bc = UtteranceEmbedder()
 		has_empty = False
 		fwq = open(foutput_q, 'wb')
 		for idx, q in enumerate(queries):
